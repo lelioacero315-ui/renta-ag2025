@@ -474,6 +474,12 @@
     <div id="registroArea"></div>
     <button class="btn btn-primary" id="btnNuevoClienteRegistro" style="width:100%; margin-top:10px;">➕ Nuevo cliente</button>
     <button class="btn btn-ghost" id="btnDescargarRecordatorios" style="width:100%; margin-top:8px;">📅 Descargar recordatorios de calendario (.ics)</button>
+    <div style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+      <p style="font-size:12px; color:var(--muted); margin:0 0 8px 0;">⚠ Todo lo de arriba vive solo en este navegador — si desinstalas la app o cambias de dispositivo, se pierde. Descarga una copia de seguridad de vez en cuando.</p>
+      <button class="btn btn-ghost" id="btnExportarCopia" style="width:100%;">💾 Exportar copia de seguridad de todos los clientes</button>
+      <button class="btn btn-ghost" id="btnImportarCopia" style="width:100%; margin-top:8px;">📂 Restaurar copia de seguridad</button>
+      <input type="file" id="inputImportarCopia" accept=".json" style="display:none;">
+    </div>
   </div>
 
   <!-- Bienvenida para el cliente (solo se muestra en archivos generados por el contador) -->
@@ -1757,6 +1763,15 @@ function build210Draft(renglones, topes, opts){
   const beneficioFactura = Math.min(Math.round((opts.facturaBeneficioBase||0) * 0.01), TOPE_240_UVT);
   const dependientes = Math.max(0, Math.min(4, opts.dependientesCount||0));
   const deduccionDependientesTeorica = Math.round(dependientes * 72 * UVT);
+  // Deducción ADICIONAL por dependientes del art. 387 E.T. (parágrafo 2, modificado por la Ley
+  // 2411/2024): 10% de los INGRESOS BRUTOS de la relación laboral (R32, sin restar nada todavía),
+  // con tope de 32 UVT mensuales = 384 UVT al año. Es un monto GLOBAL — no se multiplica por el
+  // número de dependientes, basta con tener 1 o más para tener derecho a él. El Consejo de Estado
+  // suspendió el concepto de la DIAN que las declaraba excluyentes, así que esta SÍ se suma a la
+  // de 72 UVT de arriba (art. 336), no es una u otra. Solo aplica si hay ingreso de trabajo (R32);
+  // honorarios (R43) no cuentan para esta base, a diferencia de la deducción de 72 UVT.
+  const TOPE_384_UVT = 384 * UVT;
+  const deduccion387Teorica = dependientes>0 ? Math.min(Math.round(Math.max(0,R32) * 0.10), TOPE_384_UVT) : 0;
   // Medicina prepagada / seguros de salud (art. 387 E.T.): tope de 16 UVT mensuales, hasta
   // 192 UVT al año ($9.561.410 en 2025). Al igual que dependientes, SÍ cuenta dentro del
   // límite conjunto del 40%/1.340 UVT — no es un beneficio "aparte" como el 1% de facturación.
@@ -1779,19 +1794,22 @@ function build210Draft(renglones, topes, opts){
   // exactamente al monto de sus honorarios ($5.860.000 de $7.171.056 calculados en teoría) —
   // este mismo tope es el que se aplica aquí.
   const poolRentaTrabajo = Math.max(0, (Math.max(0,R32-R33) + Math.max(0,R43-costosR43Ing)) - R36);
-  const deduccionDependientesMedTeorica = deduccionDependientesTeorica + deduccionMedicinaTeorica + aportesAfcTeorico;
+  const deduccionDependientesMedTeorica = deduccionDependientesTeorica + deduccion387Teorica + deduccionMedicinaTeorica + aportesAfcTeorico;
   let deduccionDependientes = deduccionDependientesTeorica;
+  let deduccion387 = deduccion387Teorica;
   let deduccionMedicina = deduccionMedicinaTeorica;
   let deduccionAfc = aportesAfcTeorico;
   if (deduccionDependientesMedTeorica > poolRentaTrabajo){
-    // Se prioriza dependientes, luego medicina, y lo que sobre de espacio se le da a AFC — no
-    // hay un caso real validado todavía con los tres al tiempo superando el tope, así que este
-    // orden es una decisión razonable, no una certeza absoluta.
+    // Se prioriza dependientes (336), luego el adicional de dependientes (387), luego medicina,
+    // y lo que sobre de espacio se le da a AFC — no hay un caso real validado todavía con los
+    // cuatro al tiempo superando el tope, así que este orden es una decisión razonable, no una
+    // certeza absoluta.
     deduccionDependientes = Math.min(deduccionDependientesTeorica, poolRentaTrabajo);
-    deduccionMedicina = Math.min(deduccionMedicinaTeorica, Math.max(0, poolRentaTrabajo - deduccionDependientes));
-    deduccionAfc = Math.min(aportesAfcTeorico, Math.max(0, poolRentaTrabajo - deduccionDependientes - deduccionMedicina));
+    deduccion387 = Math.min(deduccion387Teorica, Math.max(0, poolRentaTrabajo - deduccionDependientes));
+    deduccionMedicina = Math.min(deduccionMedicinaTeorica, Math.max(0, poolRentaTrabajo - deduccionDependientes - deduccion387));
+    deduccionAfc = Math.min(aportesAfcTeorico, Math.max(0, poolRentaTrabajo - deduccionDependientes - deduccion387 - deduccionMedicina));
   }
-  const R92 = R36 + beneficioFactura + deduccionDependientes + deduccionMedicina + deduccionAfc;
+  const R92 = R36 + beneficioFactura + deduccionDependientes + deduccion387 + deduccionMedicina + deduccionAfc;
 
   S("Cédula general — Rentas de trabajo");
   L("R32","Ingresos brutos por rentas de trabajo (art. 103)", R32);
@@ -1799,6 +1817,7 @@ function build210Draft(renglones, topes, opts){
   L("R36","Renta exenta 25% automática (art. 206 núm. 10, tope 790 UVT)", R36);
   if (beneficioFactura>0) L("+","1% compras con factura electrónica (máx. 240 UVT, no sujeto al 40%)", beneficioFactura);
   if (dependientes>0) L("+",`Deducción por ${dependientes} dependiente(s) (72 UVT c/u, SÍ sujeta al 40%/1.340 UVT)`, deduccionDependientes);
+  if (deduccion387>0) L("+","Deducción adicional por dependientes (10% ingreso de trabajo R32, tope 384 UVT/año, art. 387 — SE SUMA a la de arriba)", deduccion387);
   if (deduccionMedicina>0) L("+","Medicina prepagada / seguros de salud (art. 387, tope 192 UVT/año, SÍ sujeta al 40%/1.340 UVT)", deduccionMedicina);
   if (deduccionAfc>0) L("+","Aportes voluntarios AFC/FVP/AVC (art. 126-1, casilla 35, SÍ sujeta al 40%/1.340 UVT)", deduccionAfc);
   if (deduccionDependientesMedTeorica > poolRentaTrabajo && deduccionDependientesMedTeorica > 0){
@@ -2186,6 +2205,7 @@ function exportBorrador210ExcelConColor(){
   rowOf.tope790 = push("•", "Tope renta exenta 25% (790 UVT)", "", "supuesto");
   rowOf.tope240 = push("•", "Tope beneficio 1% factura electrónica (240 UVT)", "", "supuesto");
   rowOf.tope192 = push("•", "Tope deducción medicina prepagada (192 UVT/año)", "", "supuesto");
+  rowOf.tope384 = push("•", "Tope deducción adicional dependientes art. 387 (384 UVT/año)", "", "supuesto");
   rowOf.depCount = push("•", "Dependientes económicos declarados (0 a 4)", "", "normal");
   rowOf.medicinaPagada = push("•", "Medicina prepagada / seguros de salud pagados en el año", "", "normal");
   rowOf.facturaBase = push("•", "Base facturación electrónica susceptible de beneficio (de la exógena)", "", "supuesto");
@@ -2210,10 +2230,11 @@ function exportBorrador210ExcelConColor(){
   rowOf.R32 = push("R32", "Ingresos brutos por rentas de trabajo (art. 103)", "", "normal");
   rowOf.R33 = push("R33", "Ingresos no constitutivos de renta (aportes obligatorios)", "", "normal");
   rowOf.R36 = push("R36", "Renta exenta 25% automática (art. 206 núm. 10, tope 790 UVT)", "", "normal");
-  let rowBeneficio = null, rowDepend = null, rowMedicina = null, rowAfc = null;
+  let rowBeneficio = null, rowDepend = null, rowDepend387 = null, rowMedicina = null, rowAfc = null;
   const beneficioFactura = Math.min(Math.round(facturaBase*0.01), 240*EXO_UVT);
   if (beneficioFactura > 0) rowBeneficio = push("+", "1% compras con factura electrónica (máx. 240 UVT, no sujeto al 40%)", "", "normal");
   if (dependientesCount > 0) rowDepend = push("+", `Deducción por ${dependientesCount} dependiente(s) (72 UVT c/u, SÍ sujeta al 40%/1.340 UVT)`, "", "normal");
+  if (dependientesCount > 0) rowDepend387 = push("+", "Deducción adicional por dependientes (10% ingreso de trabajo R32, tope 384 UVT/año, art. 387 — SE SUMA a la de arriba)", "", "normal");
   if (medicinaPagada > 0) rowMedicina = push("+", "Medicina prepagada / seguros de salud (art. 387, tope 192 UVT/año, SÍ sujeta al 40%/1.340 UVT)", "", "normal");
   if (aportesAfcVal > 0) rowAfc = push("+", "Aportes voluntarios AFC/FVP/AVC (art. 126-1, casilla 35, SÍ sujeta al 40%/1.340 UVT)", "", "normal");
   rowOf.R92 = push("R92", "Total rentas exentas y deducciones (se resta UNA VEZ del total de las 4 cédulas)", "", "totalTexto");
@@ -2283,6 +2304,7 @@ function exportBorrador210ExcelConColor(){
   setFormula(rowOf.tope790, `${cellA1(rowOf.uvt,"C")}*790`, "supuesto");
   setFormula(rowOf.tope240, `${cellA1(rowOf.uvt,"C")}*240`, "supuesto");
   setFormula(rowOf.tope192, `${cellA1(rowOf.uvt,"C")}*192`, "supuesto");
+  setFormula(rowOf.tope384, `${cellA1(rowOf.uvt,"C")}*384`, "supuesto");
   setNum(rowOf.depCount, dependientesCount, "normal");
   setNum(rowOf.medicinaPagada, medicinaPagada, "moneda");
   setNum(rowOf.facturaBase, facturaBase, "supuesto");
@@ -2309,12 +2331,16 @@ function exportBorrador210ExcelConColor(){
   // Luz, AG2025) donde la DIAN aplicó exactamente este tope.
   const poolTrabajoExpr = `MAX(0,MAX(0,${cellA1(rowOf.R32,"C")}-${cellA1(rowOf.R33,"C")})${rowCostosR43!=null ? `+MAX(0,${cellA1(rowOf.R43,"C")}-${cellA1(rowCostosR43,"C")})` : ""}-${cellA1(rowOf.R36,"C")})`;
   if (rowDepend!=null) setFormula(rowDepend, `MIN(${cellA1(rowOf.depCount,"C")}*72*${cellA1(rowOf.uvt,"C")},${poolTrabajoExpr})`, "moneda");
-  if (rowMedicina!=null) setFormula(rowMedicina, `MIN(MIN(${cellA1(rowOf.medicinaPagada,"C")},${cellA1(rowOf.tope192,"C")}),MAX(0,${poolTrabajoExpr}-${rowDepend!=null?cellA1(rowDepend,"C"):"0"}))`, "moneda");
+  if (rowDepend387!=null) setFormula(rowDepend387, `MIN(MIN(ROUND(0.10*MAX(0,${cellA1(rowOf.R32,"C")}),0),${cellA1(rowOf.tope384,"C")}),MAX(0,${poolTrabajoExpr}-${rowDepend!=null?cellA1(rowDepend,"C"):"0"}))`, "moneda");
+  if (rowMedicina!=null){
+    const usadoAntesMed = [rowDepend!=null?cellA1(rowDepend,"C"):null, rowDepend387!=null?cellA1(rowDepend387,"C"):null].filter(Boolean).join("+") || "0";
+    setFormula(rowMedicina, `MIN(MIN(${cellA1(rowOf.medicinaPagada,"C")},${cellA1(rowOf.tope192,"C")}),MAX(0,${poolTrabajoExpr}-(${usadoAntesMed})))`, "moneda");
+  }
   if (rowAfc!=null){
-    const usadoAntes = [rowDepend!=null?cellA1(rowDepend,"C"):null, rowMedicina!=null?cellA1(rowMedicina,"C"):null].filter(Boolean).join("+") || "0";
+    const usadoAntes = [rowDepend!=null?cellA1(rowDepend,"C"):null, rowDepend387!=null?cellA1(rowDepend387,"C"):null, rowMedicina!=null?cellA1(rowMedicina,"C"):null].filter(Boolean).join("+") || "0";
     setFormula(rowAfc, `MIN(${aportesAfcVal},MAX(0,${poolTrabajoExpr}-(${usadoAntes})))`, "moneda");
   }
-  const sumR92 = [cellA1(rowOf.R36,"C"), rowBeneficio!=null?cellA1(rowBeneficio,"C"):null, rowDepend!=null?cellA1(rowDepend,"C"):null, rowMedicina!=null?cellA1(rowMedicina,"C"):null, rowAfc!=null?cellA1(rowAfc,"C"):null].filter(Boolean).join("+");
+  const sumR92 = [cellA1(rowOf.R36,"C"), rowBeneficio!=null?cellA1(rowBeneficio,"C"):null, rowDepend!=null?cellA1(rowDepend,"C"):null, rowDepend387!=null?cellA1(rowDepend387,"C"):null, rowMedicina!=null?cellA1(rowMedicina,"C"):null, rowAfc!=null?cellA1(rowAfc,"C"):null].filter(Boolean).join("+");
   setFormula(rowOf.R92, sumR92, "totalMoneda");
   setFormula(rowOf.rentaTrabajo, `MAX(0,${cellA1(rowOf.R32,"C")}-${cellA1(rowOf.R33,"C")})`, "totalMoneda");
 
@@ -3561,6 +3587,52 @@ function writeStore(store){
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(store)); } catch (e) { /* si el navegador bloquea localStorage, la app sigue funcionando sin autoguardado */ }
 }
 
+// Copia de seguridad completa: descarga TODO lo guardado en este navegador (todos los clientes,
+// checklists, bitácoras) en un solo archivo .json — para restaurar si el navegador borra el
+// almacenamiento local (por ejemplo, al desinstalar/reinstalar la app como PWA, que en algunos
+// dispositivos Android limpia el sitio por completo, tal como le pasó a un usuario real).
+function exportarCopiaSeguridad(){
+  const store = readStore();
+  const nClientes = Object.keys(store.clients || {}).length;
+  if (nClientes === 0){
+    showToast("No hay clientes guardados en este navegador todavía — nada que exportar.");
+    return;
+  }
+  const blob = new Blob([JSON.stringify(store, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  const fecha = new Date().toISOString().slice(0,10);
+  a.href = url; a.download = `Copia_Seguridad_Clientes_${fecha}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  showToast(`Copia de seguridad descargada — ${nClientes} cliente(s)`);
+}
+
+// Restaura una copia de seguridad previamente exportada. Se FUSIONA con lo que ya haya en este
+// navegador (no borra clientes existentes) — si un cliente del archivo ya existe aquí con el
+// mismo documento, el del archivo importado tiene prioridad (se asume que es la copia más
+// completa que se quiere recuperar).
+async function importarCopiaSeguridad(file){
+  try{
+    const texto = await file.text();
+    const datos = JSON.parse(texto);
+    if (!datos || typeof datos.clients !== "object"){
+      showToast("⚠ Este archivo no parece una copia de seguridad válida de esta herramienta.");
+      return;
+    }
+    const store = readStore();
+    let importados = 0;
+    for (const [clave, datosCliente] of Object.entries(datos.clients)){
+      store.clients[clave] = datosCliente;
+      importados++;
+    }
+    writeStore(store);
+    showToast(`✓ ${importados} cliente(s) restaurado(s) — recarga la página para verlos en la lista`);
+  } catch(e){
+    showToast("⚠ No se pudo leer el archivo de copia de seguridad: " + e.message);
+  }
+}
+
 function buildPayload(){
   const attachmentsMeta = {};
   Object.entries(state.attachments).forEach(([k, v]) => { attachmentsMeta[k] = v.name; });
@@ -3930,6 +4002,12 @@ function descargarRecordatoriosICS(){
   showToast(`Calendario descargado con ${eventos.length} recordatorio(s) — impórtalo a Google Calendar o al calendario de tu celular`);
 }
 document.getElementById("btnDescargarRecordatorios").addEventListener("click", descargarRecordatoriosICS);
+document.getElementById("btnExportarCopia").addEventListener("click", exportarCopiaSeguridad);
+document.getElementById("btnImportarCopia").addEventListener("click", () => document.getElementById("inputImportarCopia").click());
+document.getElementById("inputImportarCopia").addEventListener("change", (e) => {
+  if (e.target.files && e.target.files[0]) importarCopiaSeguridad(e.target.files[0]);
+  e.target.value = "";
+});
 
 document.getElementById("btnAddBitacora").addEventListener("click", () => {
   const ta = document.getElementById("bitacoraInput");

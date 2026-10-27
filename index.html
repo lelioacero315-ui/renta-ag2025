@@ -470,7 +470,6 @@
   <!-- Registro de clientes (solo contador, nunca viaja al archivo del cliente) -->
   <div class="card" id="registroCard">
     <p class="card-title">📋 Registro de clientes <span style="font-family:var(--mono); font-size:11px; font-weight:700; color:var(--gold); background:#EEF4FA; padding:2px 8px; border-radius:999px; margin-left:6px;">MODO CONTADOR</span></p>
-    <details style="margin:6px 0 10px 0;"><summary style="cursor:pointer; font-size:12px; color:var(--muted);"><b id="appVersionTxt">Versión</b> · ver novedades</summary><ul id="appNovedades" style="font-size:12.5px; margin:8px 0 0 18px; padding:0;"></ul></details>
     <p class="card-sub">Todos los clientes que has analizado en este dispositivo. Toca uno para seguir trabajando en él, o empieza uno nuevo.</p>
     <div id="registroArea"></div>
     <button class="btn btn-primary" id="btnNuevoClienteRegistro" style="width:100%; margin-top:10px;">➕ Nuevo cliente</button>
@@ -1074,19 +1073,6 @@ const ANIOS_GRAVABLES = {
   2024: { uvt: 47065, resolucion: "Resolución DIAN 000187 de 2023", presentacion: 2025 },
 };
 const UVT_VIGENTE_ACTUAL = 52374; // UVT 2026 (Comunicado DIAN 122/2026: 2.600 UVT = $136.172.400) — para la sanción mínima
-const APP_VERSION = "2.0";
-const APP_VERSION_FECHA = "24-oct-2026";
-const APP_NOVEDADES = [
-  "Año gravable AG2025 y AG2024: se detecta solo desde la exógena, con ficha normativa por año.",
-  "Presentación extemporánea (AG2024): sanción art. 641 vs Decreto 1419/2026 (15%), vence 19-nov-2026.",
-  "Copia de seguridad de clientes: exportar y restaurar (los clientes viven solo en este navegador).",
-  "Corrección: el 25% exento se calcula DESPUÉS de restar deducciones y otras rentas exentas (art. 206-10).",
-  "Dependientes: el 10% del art. 387 solo con relación laboral (Decreto 2231/2023); las 72 UVT quedan fuera del límite.",
-  "Límite conjunto 40% / 1.340 UVT calculado, con línea de ajuste visible.",
-  "Nuevos beneficios: cesantías exentas, intereses de vivienda, GMF (4x1000) y descuento por donaciones.",
-  "Pista del ingreso laboral promedio de 6 meses reportado por la DIAN (no se aplica solo).",
-  "Aviso cuando el nombre de la exógena trae la Ñ dañada.",
-];
 let ANIO_GRAVABLE = 2025;
 let EXO_UVT = ANIOS_GRAVABLES[2025].uvt;
 let EXO_UMBRAL_1400 = 1400 * EXO_UVT; // 2025: 69.718.600 | 2024: 65.891.000
@@ -4326,6 +4312,20 @@ document.getElementById("bitacoraArea").addEventListener("click", (e) => {
   });
 });
 
+// CORRECCIÓN 24-oct-2026: _DOCS_ORIG y VENC_AG2024 se declaraban DESPUÉS de loadState(); con un cliente guardado,
+// loadState() → applyClientPayload() → setAnioGravable() las usaba antes de existir (ReferenceError) y el arranque se
+// detenía: la app se veía "bloqueada" (sin registro ni botones). Se suben aquí, antes del init. Ninguna fórmula cambia.
+const _DOCS_ORIG = { general: GENERAL_ITEMS.slice(), profiles: JSON.parse(JSON.stringify(PROFILE_ITEMS)) };
+
+// Vencimientos del AG2024 (Decreto 2229/2023; se presentaba del 12-ago al 24-oct de 2025), por pares de últimos dígitos del NIT
+// (01-02, 03-04 … 99-00). Confirmados en fuentes: pares 1-7, 9-17, 23, 25-27, 31, 34-42, 48-50. El resto se completó por día hábil
+// consecutivo: verifícalo en el calendario tributario DIAN 2025 cuando el mes de retraso dependa de un día exacto.
+const VENC_AG2024 = ["2025-08-12","2025-08-13","2025-08-14","2025-08-15","2025-08-19","2025-08-20","2025-08-21","2025-08-22","2025-08-25","2025-08-26",
+  "2025-08-27","2025-08-28","2025-08-29","2025-09-01","2025-09-02","2025-09-03","2025-09-04","2025-09-05","2025-09-08","2025-09-09","2025-09-10","2025-09-11",
+  "2025-09-12","2025-09-15","2025-09-16","2025-09-17","2025-09-18","2025-09-19","2025-09-22","2025-09-23","2025-09-24","2025-09-25","2025-09-26","2025-10-01",
+  "2025-10-02","2025-10-03","2025-10-06","2025-10-07","2025-10-08","2025-10-09","2025-10-10","2025-10-14","2025-10-15","2025-10-16","2025-10-17","2025-10-20",
+  "2025-10-21","2025-10-22","2025-10-23","2025-10-24"];
+
 // ============== init ==============
 const IS_CLIENT_FILE = !!window.__PRELOADED_CLIENT__;
 const hadSavedProgress = loadState();
@@ -4386,16 +4386,7 @@ if (btnExportHojaTrabajo) btnExportHojaTrabajo.addEventListener("click", exportH
 refreshTopesUI();
 refreshChipsUI();
 // ======================= AÑO GRAVABLE, FICHA NORMATIVA Y EXTEMPORANEIDAD =======================
-const _DOCS_ORIG = { general: GENERAL_ITEMS.slice(), profiles: JSON.parse(JSON.stringify(PROFILE_ITEMS)) };
-
-// Vencimientos del AG2024 (Decreto 2229/2023; se presentaba del 12-ago al 24-oct de 2025), por pares de últimos dígitos del NIT
-// (01-02, 03-04 … 99-00). Confirmados en fuentes: pares 1-7, 9-17, 23, 25-27, 31, 34-42, 48-50. El resto se completó por día hábil
-// consecutivo: verifícalo en el calendario tributario DIAN 2025 cuando el mes de retraso dependa de un día exacto.
-const VENC_AG2024 = ["2025-08-12","2025-08-13","2025-08-14","2025-08-15","2025-08-19","2025-08-20","2025-08-21","2025-08-22","2025-08-25","2025-08-26",
-  "2025-08-27","2025-08-28","2025-08-29","2025-09-01","2025-09-02","2025-09-03","2025-09-04","2025-09-05","2025-09-08","2025-09-09","2025-09-10","2025-09-11",
-  "2025-09-12","2025-09-15","2025-09-16","2025-09-17","2025-09-18","2025-09-19","2025-09-22","2025-09-23","2025-09-24","2025-09-25","2025-09-26","2025-10-01",
-  "2025-10-02","2025-10-03","2025-10-06","2025-10-07","2025-10-08","2025-10-09","2025-10-10","2025-10-14","2025-10-15","2025-10-16","2025-10-17","2025-10-20",
-  "2025-10-21","2025-10-22","2025-10-23","2025-10-24"];
+// (_DOCS_ORIG y VENC_AG2024 se movieron antes del init; ver corrección del 24-oct-2026)
 function venceAG2024(doc){
   const d = String(doc || "").replace(/\D/g, "");
   if (d.length < 2) return null;
@@ -4570,8 +4561,6 @@ document.getElementById("anioGravableSelect").addEventListener("change", e => {
   renderChecklist(); renderBorrador210(); renderRegistro();
 });
 setAnioGravable(ANIO_GRAVABLE);
-{ const vt = document.getElementById("appVersionTxt"); if (vt) vt.textContent = "Versión " + APP_VERSION + " (" + APP_VERSION_FECHA + ")";
-  const nv = document.getElementById("appNovedades"); if (nv) nv.innerHTML = APP_NOVEDADES.map(t => "<li>" + t + "</li>").join(""); }
 
 if (fCedula.value) showDeadlineFrom(fCedula.value);
 else if (fDigitos.value) showDeadlineFrom(fDigitos.value);
